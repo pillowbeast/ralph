@@ -194,187 +194,33 @@ generate_full_prompt() {
 "
     fi
 
-#         cat << EOF
-# Return OK
-# EOF
-    
-#     cat << EOF
-# $prompt_template
-
-# ---
-
-# ## PRD User Stories ($project_dir/prd.json)
-
-# Below are ALL the user stories for this project. Stories with \`"passes": true\` are complete.
-# Stories with \`"passes": false\` still need to be implemented.
-
-# $branch_info
-# **Progress: $complete/$total complete ($incomplete remaining)**
-
-# \`\`\`json
-# $prd_content
-# \`\`\`
-
-# ---
-
-# ## Progress So Far ($project_dir/progress.txt)
-
-# $progress_content
-
-# ---
-
-# ## Technical Requirements ($project_dir/requirements.md)
-
-# $requirements_content
-
-# ---
-
-# ## Instructions
-
-# 1. **Pick the BEST user story to work on next where \`passes: false\`**
-#    - Use priority as a guide, but consider the full context
-#    - Read progress.txt to understand what was already done
-#    - Check notes field on stories for blockers or context
-#    - Consider dependencies - don't start something if prerequisites aren't done
-#    - Use your judgment to pick what makes most sense right now
-
-# 2. **Implement ONLY that single user story** - do not scope creep
-
-# 3. **After implementation, verify your work:**
-#    - Run: \`turbo check-types\` to verify no type errors
-#    - Run: \`turbo test\` to verify tests pass
-
-# 4. **If checks pass, commit and push your work:**
-#    - Use a descriptive commit message
-#    - Format: \`feat: [ID] - [Title]\`
-#    - Example: \`git commit -m "feat: 1.1 - Create subscription database schema"\`
-#    - **After committing, push to the current branch:** \`git push origin HEAD\`
-#    - ONLY push to the current branch - NEVER push to main, master, or any other branch
-
-# 5. **Update AGENTS.md if you discover reusable patterns:**
-#    - Add learnings to AGENTS.md files in directories where you modified files
-#    - Good additions: "When modifying X, also update Y", "This module uses pattern Z"
-#    - Don't add: story-specific details, temporary notes
-
-# 6. **Update prd.json:** Set \`passes: true\` for the completed user story
-
-# 7. **Report your status using the RALPH_STATUS block** (see PROMPT.md for format)
-
-# 8. **STOP IMMEDIATELY after completing ONE story**
-#    - After updating prd.json and reporting status, YOU MUST STOP
-#    - Do NOT start working on another story
-#    - Do NOT continue to the next task
-#    - The loop will call you again for the next story
-
-# 9. **If ALL user stories now have \`passes: true\`:**
-#    - Reply with: $COMPLETE_TOKEN
-#    - This signals that the entire project is complete
-
-# ## ⛔ CRITICAL: ONE STORY PER EXECUTION ⛔
-
-# **YOU MUST STOP AFTER COMPLETING ONE STORY.**
-
-# - Implement exactly ONE user story, then STOP
-# - After commit + push + prd.json update → STOP WORKING
-# - If you implement more than one story, you are breaking the system
-
-# ## OTHER REMINDERS
-
-# - **Priority field determines order** - Lower priority number = do first
-# - **Check existing code first** - Don't reimplement what already exists
-# - **Follow existing patterns** - Look at similar code in the codebase
-# - **All commits MUST pass typecheck and tests**
-# - **Update progress.txt with what you implemented**
-# - **Update AGENTS.md with reusable learnings** (not story-specific notes)
-
-# Now, analyze the PRD above and implement the next incomplete story (lowest priority number that has passes: false). STOP after completing it.
-# EOF
-
 
 cat << EOF
 $prompt_template
 
 ---
 
-## PRD User Stories 
-@ralph/projects/$project_name/prd.json
+## Project Files
 
-Below are ALL the user stories for this project. Stories with \`"passes": true\` are complete.
-Stories with \`"passes": false\` still need to be implemented.
+| File | Description |
+|------|-------------|
+| @ralph/projects/$project_name/prd.md | Full PRD with context |
+| @ralph/projects/$project_name/prd.json | User stories (\`passes: false\` = incomplete) |
+| @ralph/projects/$project_name/progress.txt | What previous iterations accomplished |
+| @ralph/projects/$project_name/requirements.md | Technical requirements |
 
 $branch_info
 **Progress: $complete/$total complete ($incomplete remaining)**
 $branch_warning
 
-## Find current progress in 
-@ralph/projects/$project_name/progress.txt
-## Read technical requirements in 
-@ralph/projects/$project_name/requirements.md
+## Completion Token
+
+When ALL user stories have \`passes: true\`, reply with:
+$COMPLETE_TOKEN
 
 ---
 
-## Instructions
-
-1. **Pick the BEST/HIGHEST PRIORITY user story to work on next where \`passes: false\`**
-   - Lower \`priority\` number = implement first (priority 1 before priority 10)
-   - Consider dependencies - implement foundation before features
-   - Look at the "steps" to understand what needs to be done
-   - Consider dependencies - don't start something if prerequisites aren't done
-   - Use your judgment to pick what makes most sense right now
-
-2. **Implement ONLY that single user story** - do not scope creep
-
-3. **After implementation, verify your work:**
-   - Run: \`turbo check-types\` to verify no type errors
-   - Run: \`turbo test\` to verify tests pass
-
-4. **If checks pass, commit and push your work:**
-   - Use a descriptive commit message
-   - Format: \`feat: [ID] - [Title]\`
-   - Example: \`git commit -m "feat: 1.1 - Create subscription database schema"\`
-   - **After committing, push to the current branch:** \`git push origin HEAD\`
-   - ⛔ ONLY push to the designated branch (\`$branch_name\`) - NEVER push to main, master, or any other branch
-
-5. **Update AGENTS.md if you discover reusable patterns:**
-   - Add learnings to AGENTS.md files in directories where you modified files
-   - Good additions: "When modifying X, also update Y", "This module uses pattern Z"
-   - Don't add: story-specific details, temporary notes
-
-6. **Update prd.json:** Set \`passes: true\` for the completed user story
-
-7. **Update progress.txt with what you implemented**
-    - Task completed and PRD item reference
-    - Key decisions made and reasoning
-    - Files changed
-    - Any blockers or notes for next iteration
-    Keep entries concise. Sacrifice grammar for the sake of concision. This file helps future iterations skip exploration.
-
-7. **Report your status using the RALPH_STATUS block** (see PROMPT.md for format)
-
-8. **If ALL user stories now have \`passes: true\`:**
-   - Reply with: $COMPLETE_TOKEN
-   - This signals that the entire project is complete
-
-9. **STOP IMMEDIATELY after completing ONE story**
-   - After updating prd.json and reporting status, YOU MUST STOP
-   - Do NOT start working on another story
-   - Do NOT continue to the next task
-   - The loop will call you again for the next story
-
-
-
-## CRITICAL REMINDERS
-
-- Implement **ONE story per loop** - Focus completely on the selected story
-- After commit + push + prd.json update → STOP WORKING
-- **Priority field determines order** - Lower priority number = do first
-- **Check existing code first** - Don't reimplement what already exists
-- **Follow existing patterns** - Look at similar code in the codebase
-- **All commits MUST pass typecheck and tests**
-- **Update progress.txt with what you implemented**
-- **Update AGENTS.md with reusable learnings** (not story-specific notes)
-
-Now, analyze the PRD above and implement the next incomplete story (lowest priority number that has passes: false). STOP after completing it.
+Now, follow the instructions above and implement the next incomplete story (lowest priority number that has \`passes: false\`). STOP after completing ONE story.
 EOF
 }
 

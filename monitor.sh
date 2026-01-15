@@ -98,6 +98,7 @@ display_dashboard() {
     clear_screen
     
     # Header
+    echo ""  # Push content below tmux border
     echo -e "${PURPLE}════════════════════════════════════════════════════════${NC}"
     echo -e "                    ${CYAN}RALPH MONITOR${NC} - $project_name             "
     echo -e "${PURPLE}════════════════════════════════════════════════════════${NC}"
