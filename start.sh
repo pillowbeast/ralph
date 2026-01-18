@@ -342,17 +342,14 @@ setup_tmux() {
     # Kill existing session if any
     tmux kill-session -t "$session_name" 2>/dev/null || true
     
-    # Create new session and capture pane ID (handles pane-base-index != 0)
-    # Pane IDs like %0, %1 are unique and don't depend on base-index settings
-    local left_pane
-    left_pane=$(tmux new-session -d -s "$session_name" -c "$REPO_ROOT" -P -F '#{pane_id}')
+    # Create new session with the loop
+    tmux new-session -d -s "$session_name" -c "$REPO_ROOT"
     
-    # Split horizontally and capture the new pane ID
-    local right_pane
-    right_pane=$(tmux split-window -h -t "$left_pane" -c "$REPO_ROOT" -P -F '#{pane_id}')
+    # Split horizontally
+    tmux split-window -h -t "$session_name" -c "$REPO_ROOT"
     
     # Start monitor in right pane
-    tmux send-keys -t "$right_pane" "$SCRIPT_DIR/monitor.sh $project_name" Enter
+    tmux send-keys -t "$session_name:0.1" "$SCRIPT_DIR/monitor.sh $project_name" Enter
     
     # Build command with options (without --monitor to avoid recursion)
     local start_cmd="$SCRIPT_DIR/start.sh $project_name"
@@ -370,13 +367,13 @@ setup_tmux() {
     fi
     
     # Start loop in left pane
-    tmux send-keys -t "$left_pane" "$start_cmd" Enter
+    tmux send-keys -t "$session_name:0.0" "$start_cmd" Enter
     
     # Select left pane
-    tmux select-pane -t "$left_pane"
+    tmux select-pane -t "$session_name:0.0"
     
     # Set window title
-    tmux rename-window -t "$session_name" "Ralph: $project_name"
+    tmux rename-window -t "$session_name:0" "Ralph: $project_name"
     
     log "SUCCESS" "tmux session created!"
     echo ""
@@ -528,8 +525,17 @@ main_loop() {
         
         # Check circuit breaker
         if should_halt_execution "$project_dir"; then
-            log "ERROR" "🛑 Circuit breaker is OPEN - execution halted"
-            log "INFO" "Run: ./ralph/start.sh $project_name --reset"
+            log "ERROR" "═══════════════════════════════════════════════════════════"
+            log "ERROR" "  🛑 CIRCUIT BREAKER OPEN - EXECUTION HALTED"
+            log "ERROR" "═══════════════════════════════════════════════════════════"
+            log "ERROR" ""
+            log "ERROR" "  The circuit breaker tripped due to repeated failures"
+            log "ERROR" "  or lack of progress."
+            log "ERROR" ""
+            log "ERROR" "  To reset and continue:"
+            log "ERROR" "    ./ralph/start.sh $project_name --reset"
+            log "ERROR" ""
+            log "ERROR" "═══════════════════════════════════════════════════════════"
             update_status "$project_dir" "$loop_count" "halted" ""
             break
         fi
