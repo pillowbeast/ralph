@@ -462,6 +462,13 @@ confirm_branch() {
         echo "  ⚠️  Switching branches during execution is FORBIDDEN."
     fi
     echo "═══════════════════════════════════════════════════════════"
+    
+    # Skip prompt in non-interactive mode
+    if [[ "${RALPH_NON_INTERACTIVE:-}" == "1" ]]; then
+        log "INFO" "Non-interactive mode: auto-confirming branch"
+        return 0
+    fi
+    
     read -p "Continue? (y/n) " -n 1 -r
     echo ""
 
