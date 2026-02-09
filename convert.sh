@@ -6,7 +6,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/utils.sh"
 
-CLAUDE_CMD="claude --dangerously-skip-permissions"
+MODEL_NAME="sonnet-4.5" # Default to a Claude model as per original behavior. Can be overridden by --model flag.
+LLM_CMD="agent --print --force --model \"$MODEL_NAME\""
 
 # Spinner characters
 SPINNER_CHARS='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
@@ -129,14 +130,19 @@ show_help() {
     cat << HELPEOF
 Ralph Convert - Convert PRD.md to JSON tasks and requirements
 
-Usage: $0 <project-name>
+Usage: $0 [options] <project-name>
 
 Arguments:
     project-name    Name of the Ralph project to convert
 
+Options:
+    --model         Specify the LLM model to use (e.g., "gemini-3.5-flash-latest", "sonnet-4.5").
+                    Default: "$MODEL_NAME"
+
 Examples:
     $0 signals
     $0 pagination
+    $0 --model gemini-1.5-flash-latest my-project
 
 This will run a two-phase conversion process:
 
@@ -249,7 +255,36 @@ PROMPTEOF
 }
 
 main() {
-    local project_name="$1"
+    # Parse options
+    local project_name=""
+    local args=()
+    while [[ "$#" -gt 0 ]]; do
+        case "$1" in
+            --model)
+                if [[ -n "$2" ]]; then
+                    MODEL_NAME="$2"
+                    LLM_CMD="agent --print --force --model \"$MODEL_NAME\""
+                    shift
+                else
+                    log "ERROR" "Error: --model requires an argument."
+                    show_help
+                    exit 1
+                fi
+                ;;
+            -*) # Unknown option
+                log "ERROR" "Error: Unknown option $1"
+                show_help
+                exit 1
+                ;;
+            *) # Positional arguments
+                args+=("$1")
+                ;;
+        esac
+        shift
+    done
+    set -- "${args[@]}" # Restore positional arguments
+
+    project_name="$1"
 
     # Validate arguments
     if [[ -z "$project_name" ]]; then
@@ -291,8 +326,9 @@ main() {
         fi
     fi
 
+    log "INFO" "Using model: $MODEL_NAME"
     log "INFO" "Converting PRD to tasks for project: $project_name"
-    log "INFO" "Claude will edit prd.json and requirements.md directly..."
+    log "INFO" "LLM will edit prd.json and requirements.md directly..."
 
     # Create log directory
     local timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
@@ -317,7 +353,7 @@ main() {
     # Run Claude with spinner
     start_spinner "(Phase 1: Initial conversion)..."
     local convert_success=true
-    if ! $CLAUDE_CMD < "$temp_prompt" > "$convert_log" 2>&1; then
+    if ! eval "$LLM_CMD" < "$temp_prompt" > "$convert_log" 2>&1; then
         convert_success=false
     fi
     stop_spinner
@@ -325,7 +361,7 @@ main() {
     rm -f "$temp_prompt"
 
     if [[ "$convert_success" != "true" ]]; then
-        log "ERROR" "Claude conversion failed"
+        log "ERROR" "LLM conversion failed"
         log "INFO" "Check log: $(get_relative_path "$convert_log")"
         exit 1
     fi
@@ -366,7 +402,7 @@ main() {
     # Run verification with spinner
     start_spinner "(Phase 2: Verification & gap analysis)..."
     local verify_success=true
-    if ! $CLAUDE_CMD < "$verify_prompt" > "$verify_log" 2>&1; then
+    if ! eval "$LLM_CMD" < "$verify_prompt" > "$verify_log" 2>&1; then
         verify_success=false
     fi
     stop_spinner
@@ -374,7 +410,7 @@ main() {
     rm -f "$verify_prompt"
 
     if [[ "$verify_success" != "true" ]]; then
-        log "WARN" "Verification phase failed - but initial conversion succeeded"
+        log "WARN" "Verification phase failed - but initial LLM conversion succeeded"
         log "INFO" "Check log: $(get_relative_path "$verify_log")"
     else
         # Compare before/after to count added and edited stories

@@ -11,12 +11,36 @@ source "$SCRIPT_DIR/lib/circuit_breaker.sh"
 source "$SCRIPT_DIR/lib/response_analyzer.sh"
 
 # Configuration
-# Use Cursor Agent instead of Claude CLI
-# --print: enables non-interactive mode with file editing capabilities
-# --force: allows shell commands (npm, git, etc.) required by Ralph
-# Ensure agent is in PATH
+# AI Tool Selection: agent (Cursor), claude (Claude Code), gemini (Gemini CLI)
+AI_TOOL=${AI_TOOL:-agent}
+
+# Configure AI command based on tool
+case "$AI_TOOL" in
+    "agent")
+        # Cursor Agent
+        # --print: enables non-interactive mode with full tool access (write, bash, etc.)
+        AI_CMD="agent --print"
+        if [[ -n "${MODEL:-}" ]]; then
+            AI_CMD="$AI_CMD --model $MODEL"
+        fi
+        ;;
+    "claude")
+        # Claude Code CLI
+        # --dangerously-skip-permissions: avoids interactive prompts for file/shell access
+        AI_CMD="claude --dangerously-skip-permissions"
+        ;;
+    "gemini")
+        # Gemini CLI
+        AI_CMD="gemini"
+        ;;
+    *)
+        echo "ERROR: Unknown AI_TOOL: $AI_TOOL"
+        exit 1
+        ;;
+esac
+
+# Ensure agent is in PATH for Cursor Agent
 export PATH="$HOME/.local/bin:$PATH"
-CLAUDE_CMD="agent --print --force"
 
 # Use gtimeout on macOS (from brew install coreutils), timeout on Linux
 if command -v gtimeout &>/dev/null; then
@@ -174,7 +198,8 @@ EOF
 generate_full_prompt() {
     local project_dir=$1
     
-    local prompt_template=$(cat "$project_dir/PROMPT.md")
+    # Use envsubst to expand environment variables in the prompt template
+    local prompt_template=$(envsubst < "$project_dir/PROMPT.md")
     local prd_content=$(cat "$project_dir/prd.json")
     local progress_content=$(cat "$project_dir/progress.txt" 2>/dev/null || echo "No progress yet.")
     local requirements_content=$(cat "$project_dir/requirements.md" 2>/dev/null || echo "No requirements yet.")
@@ -234,16 +259,16 @@ EOF
 
 
 
-# Execute Claude Code with FULL context
+# Execute AI tool with FULL context
 # Returns: 0=success, 1=error, 2=project complete, 3=API limit, 4=timeout (after retries exhausted), 5=usage limit (with reset time)
-execute_claude() {
+execute_ai() {
     local project_dir=$1
     local loop_count=$2
     
     local max_timeout_retries=2  # Retry up to 2 more times on timeout (3 total attempts)
     local timeout_attempt=0
     
-    log "LOOP" "Executing Agent (Loop #$loop_count)"
+    log "LOOP" "Executing $AI_TOOL (Loop #$loop_count)"
     
     # Generate prompt (not saved to disk)
     local prompt_content
@@ -251,7 +276,7 @@ execute_claude() {
     
     local timeout_seconds=$((CLAUDE_TIMEOUT_MINUTES * 60))
     
-    # Change to repo root for Claude
+    # Change to repo root for AI tool
     cd "$REPO_ROOT"
     
     # Retry loop for timeout handling
@@ -259,21 +284,21 @@ execute_claude() {
         timeout_attempt=$((timeout_attempt + 1))
         
         local timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
-        local output_file="$project_dir/logs/claude_${timestamp}.log"
+        local output_file="$project_dir/logs/${AI_TOOL}_${timestamp}.log"
         
         if [[ $timeout_attempt -gt 1 ]]; then
             log "INFO" "⏳ Timeout retry $((timeout_attempt - 1))/$max_timeout_retries (timeout: ${CLAUDE_TIMEOUT_MINUTES}m)..."
         else
-            log "INFO" "⏳ Starting Agent (timeout: ${CLAUDE_TIMEOUT_MINUTES}m)..."
+            log "INFO" "⏳ Starting $AI_TOOL (timeout: ${CLAUDE_TIMEOUT_MINUTES}m)..."
         fi
         
-        # Execute Claude
-        if echo "$prompt_content" | $TIMEOUT_CMD ${timeout_seconds}s $CLAUDE_CMD > "$output_file" 2>&1; then
-            log "SUCCESS" "✅ Agent execution completed"
+        # Execute AI Tool
+        if echo "$prompt_content" | $TIMEOUT_CMD ${timeout_seconds}s $AI_CMD > "$output_file" 2>&1; then
+            log "SUCCESS" "✅ $AI_TOOL execution completed"
             
             # Check for project completion token
             if grep -q "$COMPLETE_TOKEN" "$output_file"; then
-                log "SUCCESS" "🎉 Agent signaled PROJECT COMPLETE!"
+                log "SUCCESS" "🎉 $AI_TOOL signaled PROJECT COMPLETE!"
                 return 2  # Special code for project complete
             fi
             
@@ -314,16 +339,16 @@ execute_claude() {
             # Check for timeout (exit code 124)
             if [[ $exit_code -eq 124 ]]; then
                 if [[ $timeout_attempt -le $max_timeout_retries ]]; then
-                    log "WARN" "⏰ Agent timed out after ${CLAUDE_TIMEOUT_MINUTES} minutes (attempt $timeout_attempt/$((max_timeout_retries + 1)))"
+                    log "WARN" "⏰ $AI_TOOL timed out after ${CLAUDE_TIMEOUT_MINUTES} minutes (attempt $timeout_attempt/$((max_timeout_retries + 1)))"
                     log "INFO" "Retrying in 10 seconds..."
                     sleep 10
                     continue  # Retry
                 else
-                    log "ERROR" "❌ Agent timed out after ${CLAUDE_TIMEOUT_MINUTES} minutes (all $((max_timeout_retries + 1)) attempts exhausted)"
+                    log "ERROR" "❌ $AI_TOOL timed out after ${CLAUDE_TIMEOUT_MINUTES} minutes (all $((max_timeout_retries + 1)) attempts exhausted)"
                     return 4  # Special code for timeout after retries
                 fi
             else
-                log "ERROR" "❌ Agent execution failed with code $exit_code"
+                log "ERROR" "❌ $AI_TOOL execution failed with code $exit_code"
             fi
             
             # Check for 5-hour API limit
@@ -576,10 +601,10 @@ main_loop() {
         local calls=$(increment_call_counter "$project_dir")
         log "INFO" "API call $calls/$MAX_CALLS_PER_HOUR this hour"
         
-        # Execute Claude with FULL context
+        # Execute AI tool with FULL context
         # Capture exit code manually to prevent set -e from exiting on non-zero
         local exec_result=0
-        execute_claude "$project_dir" "$loop_count" || exec_result=$?
+        execute_ai "$project_dir" "$loop_count" || exec_result=$?
         
         if [[ $exec_result -eq 0 ]]; then
             update_status "$project_dir" "$loop_count" "success" ""
@@ -596,7 +621,7 @@ main_loop() {
             
             # Find the latest log file and wait for reset
             local latest_log
-            latest_log=$(ls -t "$project_dir/logs/claude_"*.log 2>/dev/null | head -1) || true
+            latest_log=$(ls -t "$project_dir/logs/${AI_TOOL}_"*.log 2>/dev/null | head -1) || true
             
             if [[ -n "$latest_log" ]]; then
                 wait_for_usage_reset "$latest_log" || sleep 3600
@@ -739,7 +764,7 @@ if [[ ! -d "$PROJECT_DIR" ]]; then
 fi
 
 # Check dependencies
-check_dependencies || exit 1
+check_dependencies "$AI_TOOL" || exit 1
 
 # Execute action
 case "$ACTION" in

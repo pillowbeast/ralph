@@ -298,11 +298,31 @@ check_usage_limit() {
 
 # Check dependencies
 check_dependencies() {
+    local ai_tool=$1
     local missing=()
     
-    if ! command_exists "claude"; then
-        missing+=("claude (Claude Code CLI)")
-    fi
+    # Check for the selected AI tool
+    case "$ai_tool" in
+        "agent")
+            if ! command_exists "agent"; then
+                missing+=("agent (Cursor Agent)")
+            fi
+            ;;
+        "claude")
+            if ! command_exists "claude"; then
+                missing+=("claude (Claude Code)")
+            fi
+            ;;
+        "gemini")
+            if ! command_exists "gemini"; then
+                missing+=("gemini (Gemini CLI)")
+            fi
+            ;;
+        *)
+            log "ERROR" "Unknown AI tool: $ai_tool"
+            return 1
+            ;;
+    esac
     
     if ! command_exists "jq"; then
         missing+=("jq (JSON processor)")
@@ -312,15 +332,17 @@ check_dependencies() {
         missing+=("tmux (terminal multiplexer)")
     fi
     
+    if ! command_exists "envsubst"; then
+        missing+=("envsubst (gettext-base)")
+    fi
+    
     if [[ ${#missing[@]} -gt 0 ]]; then
         log "ERROR" "Missing dependencies:"
         for dep in "${missing[@]}"; do
             echo "  - $dep"
         done
         echo ""
-        echo "Install with:"
-        echo "  brew install jq tmux"
-        echo "  npm install -g @anthropic-ai/claude-code"
+        echo "Install missing tools based on your AI_TOOL selection."
         return 1
     fi
     
