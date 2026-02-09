@@ -14,6 +14,9 @@ source "$SCRIPT_DIR/lib/response_analyzer.sh"
 # AI Tool Selection: agent (Cursor), claude (Claude Code), gemini (Gemini CLI)
 AI_TOOL=${AI_TOOL:-agent}
 
+# Auto-commit after successful iterations (set to "false" to disable)
+AUTO_COMMIT=${AUTO_COMMIT:-true}
+
 # Configure AI command based on tool
 case "$AI_TOOL" in
     "agent")
@@ -192,6 +195,60 @@ update_status() {
     "max_calls_per_hour": $MAX_CALLS_PER_HOUR
 }
 EOF
+}
+
+# Auto-commit changes after successful iteration
+auto_commit_changes() {
+    local project_dir=$1
+    local loop_count=$2
+    
+    # Check if there are changes to commit
+    if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+        log "INFO" "🔧 Auto-committing changes from loop #$loop_count..."
+        
+        # Stage all changes
+        git add -A 2>&1 | grep -v "warning: in the working copy of" || true
+        
+        # Check what was staged
+        local files_changed=$(git diff --cached --name-only | wc -l)
+        
+        if [[ $files_changed -gt 0 ]]; then
+            # Extract story info from prd.json if available
+            local story_info=""
+            local latest_story=$(jq -r '[.userStories[] | select(.passes == true)] | sort_by(.priority) | last | "\(.id) - \(.story)"' "$project_dir/prd.json" 2>/dev/null || echo "")
+            
+            if [[ -n "$latest_story" && "$latest_story" != "null" ]]; then
+                story_info="Story: $latest_story"
+            fi
+            
+            # Create commit message
+            local commit_msg="feat(ralph): Auto-commit loop #$loop_count changes
+
+${story_info}
+
+Auto-committed by Ralph after successful iteration.
+Files changed: $files_changed"
+            
+            # Commit
+            if git commit -m "$commit_msg" 2>&1; then
+                log "SUCCESS" "✅ Auto-committed $files_changed files"
+                
+                # Try to push
+                log "INFO" "📤 Attempting to push changes..."
+                if git push 2>&1; then
+                    log "SUCCESS" "✅ Successfully pushed changes to remote"
+                else
+                    log "WARN" "⚠️  Push failed - changes are committed locally but not pushed"
+                fi
+            else
+                log "WARN" "⚠️  Commit failed - changes remain unstaged"
+            fi
+        else
+            log "INFO" "No changes to commit"
+        fi
+    else
+        log "INFO" "No changes detected"
+    fi
 }
 
 # Generate the FULL prompt with ALL stories (like original ralph.sh)
@@ -608,6 +665,12 @@ main_loop() {
         
         if [[ $exec_result -eq 0 ]]; then
             update_status "$project_dir" "$loop_count" "success" ""
+            
+            # Auto-commit changes after successful iteration (if enabled)
+            if [[ "$AUTO_COMMIT" == "true" ]]; then
+                auto_commit_changes "$project_dir" "$loop_count"
+            fi
+            
             log "INFO" "Pausing 5s before next loop..."
             sleep 5
         elif [[ $exec_result -eq 2 ]]; then
